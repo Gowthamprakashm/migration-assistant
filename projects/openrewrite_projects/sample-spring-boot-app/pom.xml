@@ -47,33 +47,12 @@
                     <activeRecipes>
                         <recipe>org.openrewrite.java.spring.boot3.UpgradeSpringBoot_3_2</recipe>
                     </activeRecipes>
-                    <exportDatatables>true</exportDatatables>
                 </configuration>
                 <dependencies>
                     <dependency>
                         <groupId>org.openrewrite.recipe</groupId>
                         <artifactId>rewrite-spring</artifactId>
                         <version>5.22.0</version>
-                    </dependency>
-                    <dependency>
-                        <groupId>org.openrewrite.recipe</groupId>
-                        <artifactId>rewrite-migrate-java</artifactId>
-                        <version>2.31.0</version>
-                    </dependency>
-                    <dependency>
-                        <groupId>org.openrewrite.recipe</groupId>
-                        <artifactId>rewrite-testing-frameworks</artifactId>
-                        <version>2.15.0</version>
-                    </dependency>
-                    <dependency>
-                        <groupId>org.openrewrite.recipe</groupId>
-                        <artifactId>rewrite-static-analysis</artifactId>
-                        <version>1.17.0</version>
-                    </dependency>
-                    <dependency>
-                        <groupId>org.openrewrite</groupId>
-                        <artifactId>rewrite-templating</artifactId>
-                        <version>1.16.0</version>
                     </dependency>
                 </dependencies>
             </plugin>
