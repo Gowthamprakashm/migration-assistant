@@ -53,7 +53,7 @@ if ($methodChoice -eq "1") {
             Write-Host "Migration applied for $project." -ForegroundColor Green
         }
         else {
-            Write-Warning "Skipping $project: No pom.xml found."
+            Write-Warning "Skipping ${project}: No pom.xml found."
         }
     }
     
