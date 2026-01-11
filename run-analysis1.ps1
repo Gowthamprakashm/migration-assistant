@@ -3,9 +3,7 @@
 # Phase 3: Apply migration using MCP server
 # ============================================
 
-param(
-    [string]$UserPrompt = "Upgrade this project to JDK 21 and Spring Boot 3.2"
-)
+
 
 # Root paths
 $rootDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
@@ -26,44 +24,9 @@ if (!(Test-Path $baseDir)) {
     exit
 }
 
-# --- Step 2: Select Migration Method ---
-Write-Host "`nSelect Migration Method:" -ForegroundColor Yellow
-Write-Host "1) Using OpenRewrite Recipes"
-Write-Host "2) Using Microsoft App Modernization"
-$methodChoice = Read-Host "Choice (1 or 2)"
+# Default to Copilot Smart MCP (analysis-driven migration)
+Write-Host "`n--- Copilot Smart MCP: analysis-driven migration (default) ---" -ForegroundColor Green
 
-if ($methodChoice -eq "1") {
-    Write-Host "`n--- Starting OpenRewrite Migration ---" -ForegroundColor Green
-    
-    # Get all subfolders
-    $projects = Get-ChildItem -Path $baseDir -Directory | Select-Object -ExpandProperty Name
-    
-    foreach ($project in $projects) {
-        $projectPath = Join-Path $baseDir $project
-        $pomPath = Join-Path $projectPath "pom.xml"
-        
-        if (Test-Path $pomPath) {
-            Write-Host "Migrating project: $project..." -ForegroundColor Cyan
-            
-            # Run Maven OpenRewrite command
-            Set-Location $projectPath
-            mvn rewrite:run
-            Set-Location $rootDir
-            
-            Write-Host "Migration applied for $project." -ForegroundColor Green
-        }
-        else {
-            Write-Warning "Skipping ${project}: No pom.xml found."
-        }
-    }
-    
-    Write-Host "`nOpenRewrite migration completed!" -ForegroundColor Cyan
-    exit
-}
-elseif ($methodChoice -ne "2") {
-    Write-Error "Invalid selection. Exiting."
-    exit
-}
 
 $reportDir = Join-Path $rootDir "reports"
 $logFile = Join-Path $reportDir "run-log.txt"
@@ -75,7 +38,6 @@ if (!(Test-Path $reportDir)) {
 
 "============================================" | Out-File $logFile
 "Phase 3 Migration Run - $(Get-Date)" | Out-File $logFile -Append
-"Prompt used: $UserPrompt" | Out-File $logFile -Append
 "============================================" | Out-File $logFile -Append
 
 # Get all subfolders under provided directory (each is a repo)
@@ -86,20 +48,60 @@ foreach ($project in $projects) {
     "[$(Get-Date)] Starting migration for ${project}" | Out-File $logFile -Append
 
     $projectPath = Join-Path $baseDir $project
+    # --- Pre-analysis: summarize TECH STACK, ISSUES, SUGGESTIONS, RECOMMENDATION ---
+    $analysisPrompt = @"
+Please analyze the project code in the provided directory. Return a concise report with these labeled sections:
+TECH STACK:
+ISSUES:
+SUGGESTIONS:
+RECOMMENDATION:
+Keep answers brief and focused; use bullets where helpful.
+"@
+
+    $analysisPromptFlat = $analysisPrompt -replace "\r?\n", ' '
+    try {
+        $analysisCmd = "copilot -p `"$analysisPromptFlat`" --add-dir `"$projectPath`" --log-level debug"
+        Write-Host "Running analysis: $analysisCmd"
+        "[$(Get-Date)] Running analysis for ${project}: ${analysisCmd}" | Out-File $logFile -Append
+        & copilot -p "$analysisPromptFlat" --add-dir $projectPath --log-level debug 2>&1 | Tee-Object -Variable analysisLines
+        $analysisExit = $LASTEXITCODE
+        $analysisOutput = ($analysisLines -join "`n")
+        if ([string]::IsNullOrWhiteSpace($analysisOutput)) { $analysisOutput = "❌ No analysis output." }
+        $analysisOutput | Out-File (Join-Path $reportDir "${project}_analysis.txt")
+        Write-Host "`n--- Analysis for $project ---`n" -ForegroundColor Cyan
+        Write-Host $analysisOutput
+        if ($analysisExit -ne 0) { Write-Warning "Analysis returned exit code $analysisExit" }
+    }
+    catch {
+        $err = $_.Exception.Message
+        $err | Out-File (Join-Path $reportDir "${project}_analysis_error.txt")
+        Write-Warning "Analysis failed for ${project}: $err"
+    }
+    # Prompt user for migration prompt for this project
+    $perProjectPrompt = Read-Host "Enter migration prompt for project '$project'"
+    if ([string]::IsNullOrWhiteSpace($perProjectPrompt)) {
+        Write-Host "Skipping migration for $project (no prompt provided)." -ForegroundColor Yellow
+        "[$(Get-Date)] Skipped migration for ${project} (no prompt provided)." | Out-File $logFile -Append
+        continue
+    }
+
+    # Flatten prompt to a single line to avoid CLI argument parsing issues
+    $perProjectPromptFlat = $perProjectPrompt -replace "\r?\n", ' '
 
     try {
   
         # --- Run migration prompt via MCP server ---
-        $migrationOutput = copilot -p "$UserPrompt" `
-            --add-dir $projectPath `
-            --allow-tool write `
-            --allow-all-tools `
-            --enable-all-github-mcp-tools `
-            --log-level debug
+        $commandString = "copilot -p `"$perProjectPromptFlat`" --add-dir `"$projectPath`" --allow-tool write --allow-all-tools --enable-all-github-mcp-tools --log-level debug"
+        Write-Host "Executing: $commandString"
+        "[$(Get-Date)] Executing: $commandString" | Out-File $logFile -Append
 
+        # Run and stream stdout+stderr to console while capturing lines
+        & copilot -p "$perProjectPromptFlat" --add-dir $projectPath --allow-tool write --allow-all-tools --enable-all-github-mcp-tools --log-level debug 2>&1 | Tee-Object -Variable streamedLines
+        $exit = $LASTEXITCODE
+        $migrationOutput = ($streamedLines -join "`n")
 
-        if ([string]::IsNullOrWhiteSpace($migrationOutput)) {
-            $migrationOutput = "❌ No migration output."
+        if ($exit -ne 0) {
+            throw "Copilot CLI exited with code $exit"
         }
 
         $migrationOutput | Out-File (Join-Path $reportDir "${project}_migration.txt")
